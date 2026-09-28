@@ -8,43 +8,49 @@ using System.Windows.Forms;
 
 namespace CSharp_FileAnalyzer
 {
-    //Yeni dosya türleri eklendiğinde sistemi genişletmeyi sağlayan Arayüz 
-    public interface IDosyaokuyucu
+    //Yeni dosya türleri eklendiğinde sistemi genişletmeyi sağlayan Arayüz
+    public interface IFileReader
     {
-        string Dosyaoku(string yol);
-
+        string ReadFile(string path);
     }
+
     //TXT dosyalarını okumaktan sorumlu sınıf
-    public class TXTOkuyucu : IDosyaokuyucu
+    public class TXTReader : IFileReader
     {
-        public string Dosyaoku(string yol)
+        public string ReadFile(string path)
         {
-            return File.ReadAllText(yol);
+            return File.ReadAllText(path);
         }
     }
+
     //Word(.docx) dosyalarını okumaktan sorumlu sınıf
-    public class DocxOkuyucu : IDosyaokuyucu
+    public class DocxReader : IFileReader
     {
-        public string Dosyaoku(string yol)
+        public string ReadFile(string path)
         {
-            System.Text.StringBuilder icerik = new System.Text.StringBuilder();
-            using (var wordDosyasi = Xceed.Words.NET.DocX.Load(yol))
+            StringBuilder content = new StringBuilder();
+
+            using (var wordFile = Xceed.Words.NET.DocX.Load(path))
             {
-                foreach (var paragraf in wordDosyasi.Paragraphs)
+                foreach (var paragraph in wordFile.Paragraphs)
                 {
-                    icerik.AppendLine(paragraf.Text);
+                    content.AppendLine(paragraph.Text);
                 }
             }
-            return icerik.ToString();
+
+            return content.ToString();
         }
     }
+
     internal class Program
     {
         //Heaplamaya dahil edilmeyecek bağlaçların listesi
-        private static readonly HashSet<string> Baglaclar = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "ve","veya","ile","da","de","ki","ama","çünkü","ise","ancak","zira","madem"
-        };
+        private static readonly HashSet<string> Conjunctions =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "ve", "veya", "ile", "da", "de", "ki",
+                "ama", "çünkü", "ise", "ancak", "zira", "madem"
+            };
 
         //Windows dosya penceresinin konsolda kararlı çalışmasını sağlayan zorunlu ayar
         [STAThread]
@@ -52,119 +58,146 @@ namespace CSharp_FileAnalyzer
         {
             Console.WriteLine("Dosya analizi başlatılıyor...");
             Console.WriteLine("Lütfen dosya seçiniz");
+
             //Dosya seçim penceresi
-            OpenFileDialog dosyaSecici = new OpenFileDialog();
-            dosyaSecici.Filter = "Desteklenen Dosyalar|*.txt;*.docx";
-            dosyaSecici.Title = "Analiz edilecek dosyayı seçin";
-            if (dosyaSecici.ShowDialog() == DialogResult.OK)
+            OpenFileDialog fileSelector = new OpenFileDialog();
+            fileSelector.Filter = "Desteklenen Dosyalar|*.txt;*.docx";
+            fileSelector.Title = "Analiz edilecek dosyayı seçin";
+
+            if (fileSelector.ShowDialog() == DialogResult.OK)
             {
-                string secilenDosyaYolu = dosyaSecici.FileName;
-                string uzanti = Path.GetExtension(secilenDosyaYolu).ToLower();
+                string selectedFilePath = fileSelector.FileName;
+                string extension = Path.GetExtension(selectedFilePath).ToLower();
+
                 // Geçersiz veya var olmayan dosya yolu kontrolü
-                if (!File.Exists(secilenDosyaYolu))
+                if (!File.Exists(selectedFilePath))
                 {
-                    HataLogla("Geçersiz dosya yolu! Dosya bulunamadı: " + secilenDosyaYolu);
+                    LogError("Geçersiz dosya yolu! Dosya bulunamadı: " + selectedFilePath);
                     return;
                 }
+
                 try
                 {
-                    IDosyaokuyucu okuyucu = null;
-                    //Dosya uzantısına göre ilgili okuyucu sınıfı devreye giriyor 
-                    if (uzanti == ".txt") okuyucu = new TXTOkuyucu();
-                    else if (uzanti == ".docx") okuyucu = new DocxOkuyucu();
-                    if(okuyucu != null)
+                    IFileReader reader = null;
+
+                    //Dosya uzantısına göre ilgili okuyucu sınıfı devreye giriyor
+                    if (extension == ".txt")
+                        reader = new TXTReader();
+                    else if (extension == ".docx")
+                        reader = new DocxReader();
+
+                    if (reader != null)
                     {
-                        string metin = okuyucu.Dosyaoku(secilenDosyaYolu);
+                        string text = reader.ReadFile(selectedFilePath);
 
                         //Ekranı temizleyip düzenli yazdırdığımız kısım
                         Console.Clear();
                         Console.WriteLine("===Analiz Raporu===");
-                        Console.WriteLine($"Dosya: {Path.GetFileName(secilenDosyaYolu)}\n");
-                        //Analizi yapan fonksiyonuçağıran kısım
-                        AnalizEtVeRaporla(metin);
-                        //Başarılı olan işlemi kaydetirdiğimiz kısm
-                        Logla($"Başarılı Analiz: {secilenDosyaYolu}");
+                        Console.WriteLine($"Dosya: {Path.GetFileName(selectedFilePath)}\n");
 
+                        //Analizi yapan fonksiyonuçağıran kısım
+                        AnalyzeAndReport(text);
+
+                        //Başarılı olan işlemi kaydetirdiğimiz kısm
+                        LogInfo($"Başarılı Analiz: {selectedFilePath}");
                     }
                     else
                     {
-                        HataLogla("Desteklenmeyen dosya formatı.");
+                        LogError("Desteklenmeyen dosya formatı.");
                     }
                 }
-                catch(Exception ex)
+                catch (Exception ex)
                 {
-                    HataLogla($"Dosya işlenirken hata oluştu: {ex.Message}");
+                    LogError($"Dosya işlenirken hata oluştu: {ex.Message}");
                 }
             }
+
             Console.WriteLine("\n Çıkmak için bir tuşa basınız.");
             Console.ReadKey();
         }
-        public static void Logla(string mesaj)
+
+        public static void LogInfo(string message)
         {
-            string logMetni = "[" + DateTime.Now + "] INFO: " + mesaj + "\n";
-            File.AppendAllText("uygulama_log.txt", logMetni);
+            string logText = "[" + DateTime.Now + "] INFO: " + message + "\n";
+            File.AppendAllText("uygulama_log.txt", logText);
         }
 
         // [Madde 7] Hataları hem ekrana basar hem de "uygulama_log.txt" dosyasına kaydeder
-        public static void HataLogla(string mesaj)
+        public static void LogError(string message)
         {
-            Console.WriteLine("\nHata: " + mesaj);
-            string logMetni = "[" + DateTime.Now + "] ERROR: " + mesaj + "\n";
-            File.AppendAllText("uygulama_log.txt", logMetni);
+            Console.WriteLine("\nHata: " + message);
+            string logText = "[" + DateTime.Now + "] ERROR: " + message + "\n";
+            File.AppendAllText("uygulama_log.txt", logText);
         }
-        public static void AnalizEtVeRaporla(string metin)
+
+        public static void AnalyzeAndReport(string text)
         {
             // 1. ADIM: Bilgisayara Türkçe dil kurallarını tanımlıyoruz
-            System.Globalization.CultureInfo turkceKultur = new System.Globalization.CultureInfo("tr-TR");
+            System.Globalization.CultureInfo turkishCulture =
+                new System.Globalization.CultureInfo("tr-TR");
 
             // Noktalama işaretlerini sayıyoruz
-            int noktalamaSayisi = metin.Count(char.IsPunctuation);
-            Console.WriteLine("[Noktalama İşareti Sayısı]: " + noktalamaSayisi);
+            int punctuationCount = text.Count(char.IsPunctuation);
+            Console.WriteLine("[Noktalama İşareti Sayısı]: " + punctuationCount);
 
             // 2. ADIM: Tüm noktalama işaretlerini tek tek boşluğa çeviriyoruz
-            string temizMetin = new string(metin.Select(c => char.IsPunctuation(c) ? ' ' : c).ToArray());
+            string cleanedText = new string(
+                text.Select(c => char.IsPunctuation(c) ? ' ' : c).ToArray()
+            );
 
             // Metni sadece boşluklara, satır başlarına göre temiz kelimelere bölüyoruz
-            string[] tumKelimeler = temizMetin.Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] allWords = cleanedText.Split(
+                new[] { ' ', '\r', '\n', '\t' },
+                StringSplitOptions.RemoveEmptyEntries
+            );
 
             // 3. ADIM: Sözlüğü (Dictionary) Türkçe büyük/küçük harfe duyarsız yapıyoruz
-            Dictionary<string, int> kelimeSayilari = new Dictionary<string, int>(StringComparer.Create(turkceKultur, true));
-            int toplamFarkliKelime = 0;
+            Dictionary<string, int> wordCounts =
+                new Dictionary<string, int>(
+                    StringComparer.Create(turkishCulture, true)
+                );
 
-            foreach (string kelime in tumKelimeler)
+            int totalDifferentWords = 0;
+
+            foreach (string word in allWords)
             {
                 // Kelimeyi Türkçe kurallarına göre tamamen küçük harfe çeviriyoruz
-                string kucukKelime = kelime.ToLower(turkceKultur);
+                string lowercaseWord = word.ToLower(turkishCulture);
 
-                if (string.IsNullOrEmpty(kucukKelime) || double.TryParse(kucukKelime, out _) || Baglaclar.Contains(kucukKelime))
+                if (string.IsNullOrEmpty(lowercaseWord) ||
+                    double.TryParse(lowercaseWord, out _) ||
+                    Conjunctions.Contains(lowercaseWord))
                 {
                     continue;
                 }
 
-                if (kelimeSayilari.ContainsKey(kucukKelime))
+                if (wordCounts.ContainsKey(lowercaseWord))
                 {
-                    kelimeSayilari[kucukKelime]++;
+                    wordCounts[lowercaseWord]++;
                 }
                 else
                 {
-                    kelimeSayilari[kucukKelime] = 1;
-                    toplamFarkliKelime++;
+                    wordCounts[lowercaseWord] = 1;
+                    totalDifferentWords++;
                 }
             }
 
-            Console.WriteLine("[Toplam Farklı Kelime Sayısı]: " + toplamFarkliKelime + "\n");
+            Console.WriteLine(
+                "[Toplam Farklı Kelime Sayısı]: " + totalDifferentWords + "\n"
+            );
+
             Console.WriteLine("--- En Çok Tekrar Eden Kelimeler (Sıralı) ---");
 
-            var siraliKelimeler = kelimeSayilari.OrderByDescending(x => x.Value);
-            foreach (var sira in siraliKelimeler)
+            var sortedWords = wordCounts.OrderByDescending(x => x.Value);
+
+            foreach (var item in sortedWords)
             {
-                Console.WriteLine(sira.Key + ": " + sira.Value + " kez");
+                Console.WriteLine(item.Key + ": " + item.Value + " kez");
             }
         }
-
     }
-} 
+}
 
-    
+
 
 
