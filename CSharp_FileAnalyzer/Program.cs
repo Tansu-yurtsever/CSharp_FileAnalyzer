@@ -145,13 +145,13 @@ namespace CSharp_FileAnalyzer
                 text.Select(c => char.IsPunctuation(c) ? ' ' : c).ToArray()
             );
 
-            // Metni sadece boşluklara, satır başlarına göre temiz kelimelere bölüyoruz
+            // Metni sadece boşluklara, satır başlarına göre temiz kelimelere bölüyoruz.
             string[] allWords = cleanedText.Split(
                 new[] { ' ', '\r', '\n', '\t' },
                 StringSplitOptions.RemoveEmptyEntries
             );
 
-            // 3. ADIM: Sözlüğü (Dictionary) Türkçe büyük/küçük harfe duyarsız yapıyoruz
+            // 3. ADIM: Sözlüğü (Dictionary) Türkçe büyük/küçük harfe duyarsız yapıyoruz.
             Dictionary<string, int> wordCounts =
                 new Dictionary<string, int>(
                     StringComparer.Create(turkishCulture, true)
